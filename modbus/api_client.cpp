@@ -48,18 +48,18 @@ fun modbus::api::Client::ReadCoils(uint16_t register_address, uint16_t n_registe
         req[4] = (n_register >> 8) & 0xFF;
         req[5] = (n_register >> 0) & 0xFF;
 
-        var [msg, err] = request(req, sizeof(req)).wait(timeout);
-        if (err) return etl::Err(*err);
-        
-        var buf = etl::Vector<bool>();
+        return request(req, sizeof(req))
+            .wait(timeout)
+            .and_then([](Message msg) -> etl::Result<etl::Vector<bool>, osStatus_t> {
+                if (msg.data[2] != msg.len - 3)
+                    return etl::Err(osError);
+                
+                var buf = etl::vector_reserve<bool>(msg.len - 3);
+                for (val byte in etl::iter(msg.data + 3, msg.data + msg.len))
+                    buf += byte;
 
-        if (msg->data[2] != msg->len - 3)
-            return etl::Err(osError);
-        
-        for (val byte in etl::iter(msg->data + 3, msg->data + msg->len))
-            buf += byte;
-
-        return etl::Ok(etl::move(buf));
+                return etl::Ok(etl::move(buf));
+            });
     };
 }
 
@@ -72,19 +72,19 @@ fun modbus::api::Client::ReadDiscreteInputs(uint16_t register_address, uint16_t 
         req[3] = (register_address >> 0) & 0xFF;
         req[4] = (n_register >> 8) & 0xFF;
         req[5] = (n_register >> 0) & 0xFF;
-        
-        var [msg, err] = request(req, sizeof(req)).wait(timeout);
-        if (err) return etl::Err(*err);
-        
-        var buf = etl::Vector<bool>();
 
-        if (msg->data[2] != msg->len - 3)
-            return etl::Err(osError);
-        
-        for (val byte in etl::iter(msg->data + 3, msg->data + msg->len))
-            buf += byte;
+        return request(req, sizeof(req))
+            .wait(timeout)
+            .and_then([](Message msg) -> etl::Result<etl::Vector<bool>, osStatus_t> {
+                if (msg.data[2] != msg.len - 3)
+                    return etl::Err(osError);
+                
+                var buf = etl::vector_reserve<bool>(msg.len - 3);
+                for (val byte in etl::iter(msg.data + 3, msg.data + msg.len))
+                    buf += byte;
 
-        return etl::Ok(etl::move(buf));
+                return etl::Ok(etl::move(buf));
+            });
     };
 }
 
@@ -97,21 +97,22 @@ fun modbus::api::Client::ReadHoldingRegisters(uint16_t register_address, uint16_
         req[3] = (register_address >> 0) & 0xFF;
         req[4] = (n_register >> 8) & 0xFF;
         req[5] = (n_register >> 0) & 0xFF;
-        
-        var [msg, err] = request(req, sizeof(req)).wait(timeout);
-        if (err) return etl::Err(*err);
 
-        var buf = etl::Vector<uint16_t>();
+        return request(req, sizeof(req))
+            .wait(timeout)
+            .and_then([](Message msg) -> etl::Result<etl::Vector<uint16_t>, osStatus_t> {
+                if (msg.data[2] != msg.len - 3)
+                    return etl::Err(osError);
 
-        if (msg->data[2] != msg->len - 3)
-            return etl::Err(osError);
-
-        const int length = msg->data[2] / 2;
-        const int index_begin = 3;
-        for (int i = 0; i < length; ++i) 
-            buf += msg->data[index_begin + i * 2] << 8 | msg->data[index_begin + i * 2 + 1];
-        
-        return etl::Ok(etl::move(buf));
+                const int length = msg.data[2] / 2;
+                const int index_begin = 3;
+                var buf = etl::vector_reserve<uint16_t>(length);
+                
+                for (int i in etl::range(length)) 
+                    buf += msg.data[index_begin + i * 2] << 8 | msg.data[index_begin + i * 2 + 1];
+                
+                return etl::Ok(etl::move(buf));
+            });
     };
 }
 
@@ -125,20 +126,21 @@ fun modbus::api::Client::ReadInputRegisters(uint16_t register_address, uint16_t 
         req[4] = (n_register >> 8) & 0xFF;
         req[5] = (n_register >> 0) & 0xFF;
         
-        var [msg, err] = request(req, sizeof(req)).wait(timeout);
-        if (err) return etl::Err(*err);
+        return request(req, sizeof(req))
+            .wait(timeout)
+            .and_then([](Message msg) -> etl::Result<etl::Vector<uint16_t>, osStatus_t> {
+                if (msg.data[2] != msg.len - 3)
+                    return etl::Err(osError);
 
-        var buf = etl::Vector<uint16_t>();
-
-        if (msg->data[2] != msg->len - 3)
-            return etl::Err(osError);
-
-        const int length = msg->data[2] / 2;
-        const int index_begin = 3;
-        for (int i = 0; i < length; ++i) 
-            buf += msg->data[index_begin + i * 2] << 8 | msg->data[index_begin + i * 2 + 1];
-        
-        return etl::Ok(etl::move(buf));
+                const int length = msg.data[2] / 2;
+                const int index_begin = 3;
+                var buf = etl::vector_reserve<uint16_t>(length);
+                
+                for (int i in etl::range(length)) 
+                    buf += msg.data[index_begin + i * 2] << 8 | msg.data[index_begin + i * 2 + 1];
+                
+                return etl::Ok(etl::move(buf));
+            });
     };
 }
 
@@ -152,7 +154,12 @@ fun modbus::api::Client::WriteSingleCoil(uint16_t register_address, bool value) 
         req[4] = value ? 0xFF : 0x00;
         req[5] = 0x00;
         
-        return request(req, sizeof(req)).wait(timeout).then([](Message msg) { return msg.data[4] == 0xFF; });
+        return request(req, sizeof(req))
+            .wait(timeout)
+            .and_then([](Message msg) -> etl::Result<bool, osStatus_t> {
+                if (msg.len < 5) return etl::Err(osError);
+                return etl::Ok(msg.data[4] == 0xFF);
+            });
     };
 }
 
@@ -166,7 +173,12 @@ fun modbus::api::Client::WriteSingleRegister(uint16_t register_address, uint16_t
         req[4] = (value >> 8) & 0xFF;
         req[5] = (value >> 0) & 0xFF;
 
-        return request(req, sizeof(req)).wait(timeout).then([](Message msg) -> uint16_t { return msg.data[4] << 8 | msg.data[5]; });
+        return request(req, sizeof(req))
+            .wait(timeout)
+            .and_then([](Message msg) -> etl::Result<uint16_t, osStatus_t> {
+                if (msg.len != 6) return etl::Err(osError);
+                return etl::Ok(msg.data[4] << 8 | msg.data[5]);
+            });
     };
 }
 
@@ -176,7 +188,12 @@ fun modbus::api::Client::ReadExceptionStatus() -> etl::Future<uint8_t> {
         req[0] = server_address;
         req[1] = READ_EXCEPTION_STATUS;
 
-        return request(req, sizeof(req)).wait(timeout).then([](Message msg) { return msg.data[2]; });
+        return request(req, sizeof(req))
+            .wait(timeout)
+            .and_then([](Message msg) -> etl::Result<uint8_t, osStatus_t> {
+                if (msg.len < 3) return etl::Err(osError);
+                return etl::Ok(msg.data[2]);
+            });
     };
 }
 
@@ -187,21 +204,25 @@ fun modbus::api::Client::Diagnostic(uint8_t sub_function) -> etl::Future<etl::Ve
         req[1] = DIAGNOSTIC;
         req[2] = sub_function;
 
-        return request(req, sizeof(req)).wait(timeout).then([] (Message msg) {
-            var buf = etl::Vector<uint8_t>();
-            for (val byte in etl::iter(msg.data + 2, msg.data + msg.len))
-                buf += byte;
-            
-            return buf;
-        });
+        return request(req, sizeof(req))
+            .wait(timeout)
+            .and_then([] (Message msg) -> etl::Result<etl::Vector<uint8_t>, osStatus_t> {
+                if (msg.len < 2) return etl::Err(osError);
+
+                var buf = etl::vector_reserve<uint8_t>(msg.len - 2);
+                for (val byte in etl::iter(msg.data + 2, msg.data + msg.len))
+                    buf += byte;
+                
+                return etl::Ok(etl::move(buf));
+            });
     };
 }
 
 fun modbus::api::Client::WriteMultipleCoils(uint16_t register_address, uint16_t n_register, etl::Vector<bool> values) -> etl::Future<void> {
     return [this, register_address, n_register, values=etl::move(values)] (etl::Time timeout) -> etl::Result<void, osStatus_t> {
         int byte_count = values.len() / 8 + 1;
-        var req = etl::Vector<uint8_t>();
-        req.reserve(7 + byte_count);
+        var req = etl::vector_reserve<uint8_t>(7 + byte_count);
+
         req.append(server_address);
         req.append(WRITE_MULTIPLE_COILS);
         req.append((register_address >> 8) & 0xFF);
@@ -230,7 +251,8 @@ fun modbus::api::Client::WriteMultipleCoils(uint16_t register_address, uint16_t 
 fun modbus::api::Client::WriteMultipleRegisters(uint16_t register_address, uint16_t n_register, etl::Vector<uint16_t> values) -> etl::Future<void> {
     return [this, register_address, n_register, values=etl::move(values)] (etl::Time timeout) -> etl::Result<void, osStatus_t> {
         int byte_count = values.len() * 2;
-        var req = etl::Vector<uint8_t>();
+        var req = etl::vector_reserve<uint8_t>(7 + byte_count);
+        
         req.reserve(7 + byte_count);
         req.append(server_address);
         req.append(WRITE_MULTIPLE_REGISTERS);

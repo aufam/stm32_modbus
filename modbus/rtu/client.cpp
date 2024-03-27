@@ -36,7 +36,7 @@ void modbus::rtu::Client::_send(const uint8_t* data, size_t len) {
     #endif
     #ifdef HAL_PCD_MODULE_ENABLED
     if (usb) {
-        usb->transmitBlocking(data, len);
+        usb->transmit(data, len);
     }
     #endif
 }
