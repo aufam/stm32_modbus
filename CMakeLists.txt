@@ -6,10 +6,12 @@ file(GLOB MODBUS_SOURCES modbus/*.*)
 
 if (NOT DEFINED MODBUS_DISABLE_RTU)
     file(GLOB_RECURSE MODBUS_RTU_SOURCES modbus/rtu/*.*)
+    message(STATUS "MODBUS RTU ENABLED")
 endif()
 
 if (NOT DEFINED MODBUS_DISABLE_TCP)
     file(GLOB_RECURSE MODBUS_TCP_SOURCES modbus/tcp/*.*)
+    message(STATUS "MODBUS TCP ENABLED")
 endif()
 
 add_library(modbus ${MODBUS_SOURCES} ${MODBUS_RTU_SOURCES} ${MODBUS_TCP_SOURCES})

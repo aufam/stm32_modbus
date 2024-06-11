@@ -11,20 +11,12 @@ namespace Project::modbus::rtu {
     public:
         #ifdef HAL_UART_MODULE_ENABLED
         struct ArgsUART { periph::UART& uart; int server_address; };
-        explicit Server(ArgsUART args) : api::Server(
-            args.server_address, 
-            etl::bind<&Server::_send>(this)
-        ), uart(&args.uart)
-        {}
+        explicit Server(ArgsUART args) : api::Server(args.server_address), uart(&args.uart) {}
         #endif
 
         #ifdef HAL_PCD_MODULE_ENABLED
         struct ArgsUSB { periph::USBD& usb; int server_address; };
-        explicit Server(ArgsUSB args) : api::Server(
-            args.server_address, 
-            etl::bind<&Server::_send>(this)
-        ), usb(&args.usb)
-        {}
+        explicit Server(ArgsUSB args) : api::Server(args.server_address), usb(&args.usb) {}
         #endif
 
         void init();
@@ -39,7 +31,8 @@ namespace Project::modbus::rtu {
         periph::USBD* usb = nullptr;
         #endif
 
-        void _send(const uint8_t* data, size_t len);
+        void rxCallback(const uint8_t* data, size_t len);
+        void rxCallbackTask(etl::Iter<const uint8_t*> data);
     };
 }
 

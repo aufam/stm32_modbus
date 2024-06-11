@@ -44,133 +44,59 @@ fun modbus::api::Server::DiagnosticGetter(uint8_t sub_function, std::function<et
     return *this;
 }
 
-fun modbus::api::Server::response(const uint8_t* data, size_t len) const -> void {
-    val checksum = modbus::api::crc(data, len);
-    uint8_t res[len + 2];
-    ::memcpy(res, data, len);
-    res[len + 0] = (checksum >> 0) & 0xFF;
-    res[len + 1] = (checksum >> 8) & 0xFF;
-
-    send(res, len + 2);
-}
-
-fun modbus::api::Server::rxCallback(const uint8_t* data, size_t len) -> void {
-    var begin = data;
-    val total = len;
-
-    for (; len >= 4; --len) {
-        var decoded = decode(data, len);
-        if (not decoded) 
-            continue;
-        
-        if (decoded[0] == server_address) {
-            etl::async<&Server::callbackTask>(this, etl::move(decoded), etl::move(len));
-        }
-
-        val len_total = len + 2;
-        return len_total == total ? void() : rxCallback(begin + len_total, total - len_total);
-    }
-}
-
-fun modbus::api::Server::callbackTask(const uint8_t* data, size_t len) -> void {
-    if (len == 0)
-        return;
-    
-    uint8_t decoded[len];
-    memcpy(decoded, data, len);
-
-    switch (decoded[1]) {
-        case FunctionCode::READ_COILS: {
-            const uint16_t start_register = decoded[2] << 8 | decoded[3];
-            const uint16_t length = decoded[4] << 8 | decoded[5];
-
-            uint8_t buffer[length + 3];
-            buffer[0] = decoded[0];
-            buffer[1] = decoded[1];
-
-            int idx = 3;
-            int cnt = 0;
-            for (val i in etl::range<uint16_t>(start_register, start_register + length)) {
-                if (coil_getters.has(i)) {
-                    buffer[idx++] = coil_getters[i]();
-                    ++cnt;
-                }
-            }
-
-            buffer[2] = cnt;
-            response(buffer, idx);
-            break;
-        }
+fun modbus::api::Server::create_response(etl::Vector<uint8_t> data) -> etl::Vector<uint8_t> {
+    switch (data[1]) {
+        case FunctionCode::READ_COILS: 
         case FunctionCode::READ_DISCRETE_INPUTS: {
-            const uint16_t start_register = decoded[2] << 8 | decoded[3];
-            const uint16_t length = decoded[4] << 8 | decoded[5];
+            const uint16_t start_register = data[2] << 8 | data[3];
+            const uint16_t length = data[4] << 8 | data[5];
 
-            uint8_t buffer[length + 3];
-            buffer[0] = decoded[0];
-            buffer[1] = decoded[1];
+            var buffer = etl::vector_reserve<uint8_t>(2 + 1 + length + 2);
+            buffer.append(data[0]); // address
+            buffer.append(data[1]); // function code
+            buffer.append(length); // length
 
-            int idx = 3;
+            val &getter = data[1] == FunctionCode::READ_COILS ? coil_getters : discrete_input_getters;
             int cnt = 0;
+
             for (val i in etl::range<uint16_t>(start_register, start_register + length)) {
-                if (discrete_input_getters.has(i)) {
-                    buffer[idx++] = discrete_input_getters[i]();
+                if (getter.has(i)) {
+                    buffer.append(getter[i]());
                     ++cnt;
                 }
             }
 
-            buffer[2] = cnt;
-            response(buffer, idx);
-            break;
+            buffer[2] = cnt; // actual length
+            return buffer;
         }
-        case FunctionCode::READ_HOLDING_REGISTERS: {
-            const uint16_t start_register = decoded[2] << 8 | decoded[3];
-            const uint16_t length = decoded[4] << 8 | decoded[5];
-
-            uint8_t buffer[length * 2 + 3];
-            buffer[0] = decoded[0];
-            buffer[1] = decoded[1];
-
-            int idx = 3;
-            int cnt = 0;
-            for (val i in etl::range<uint16_t>(start_register, start_register + length)) {
-                if (holding_register_getters.has(i)) {
-                    val value = holding_register_getters[i]();
-                    buffer[idx++] = (value >> 8) & 0xFF;
-                    buffer[idx++] = (value >> 0) & 0xFF;
-                    cnt += 2;
-                }
-            }
-
-            buffer[2] = cnt;
-            response(buffer, idx);
-            break;
-        }
+        case FunctionCode::READ_HOLDING_REGISTERS:
         case FunctionCode::READ_INPUT_REGISTERS: {
-            const uint16_t start_register = decoded[2] << 8 | decoded[3];
-            const uint16_t length = decoded[4] << 8 | decoded[5];
+            const uint16_t start_register = data[2] << 8 | data[3];
+            const uint16_t length = data[4] << 8 | data[5];
 
-            uint8_t buffer[length * 2 + 3];
-            buffer[0] = decoded[0];
-            buffer[1] = decoded[1];
+            var buffer = etl::vector_reserve<uint8_t>(2 + 1 + length * 2 + 2);
+            buffer.append(data[0]); // address
+            buffer.append(data[1]); // function code
+            buffer.append(length * 2); // length
 
-            int idx = 3;
+            val &getter = data[1] == FunctionCode::READ_HOLDING_REGISTERS ? holding_register_getters : analog_input_getters;
             int cnt = 0;
+
             for (val i in etl::range<uint16_t>(start_register, start_register + length)) {
-                if (analog_input_getters.has(i)) {
-                    val value = analog_input_getters[i]();
-                    buffer[idx++] = (value >> 8) & 0xFF;
-                    buffer[idx++] = (value >> 0) & 0xFF;
+                if (getter.has(i)) {
+                    val value = getter[i]();
+                    buffer.append((value >> 8) & 0xFF);
+                    buffer.append((value >> 0) & 0xFF);
                     cnt += 2;
                 }
             }
 
-            buffer[2] = cnt;
-            response(buffer, idx);
-            break;
+            buffer[2] = cnt; // actual length
+            return buffer;
         }
         case FunctionCode::WRITE_SINGLE_COIL: {
-            const uint16_t start_register = decoded[2] << 8 | decoded[3];
-            const uint16_t value = decoded[4] << 8 | decoded[5];
+            const uint16_t start_register = data[2] << 8 | data[3];
+            const uint16_t value = data[4] << 8 | data[5];
 
             if (value == 0xFF00 and coil_setters.has(start_register)) {
                 coil_setters[start_register](true);
@@ -179,48 +105,44 @@ fun modbus::api::Server::callbackTask(const uint8_t* data, size_t len) -> void {
                 coil_setters[start_register](false);
             }
 
-            response(decoded, len);
-            break;
+            return data;
         }
         case FunctionCode::WRITE_SINGLE_REGISTER: {
-            const uint16_t start_register = decoded[2] << 8 | decoded[3];
-            const uint16_t value = decoded[4] << 8 | decoded[5];
+            const uint16_t start_register = data[2] << 8 | data[3];
+            const uint16_t value = data[4] << 8 | data[5];
 
             if (holding_register_setters.has(start_register)) {
                 holding_register_setters[start_register](value);
             }
 
-            response(decoded, len);
-            break;
+            return data;
         }
         case FunctionCode::READ_EXCEPTION_STATUS: {
-            uint8_t buffer[3];
-            buffer[0] = decoded[0];
-            buffer[1] = decoded[1];
-            buffer[2] = exception_status_getter();
+            var buffer = etl::vector_reserve<uint8_t>(2 + 1 + 2);
+            buffer.append(data[0]);
+            buffer.append(data[1]);
+            buffer.append(exception_status_getter ? exception_status_getter() : 0x00);
 
-            response(buffer, 3);
-            break;
+            return buffer;
         }
         case FunctionCode::DIAGNOSTIC: {
-            val sub_function = decoded[2];
-            val diagnose = diagnostic_getters[sub_function]();
+            val sub_function = data[2];
+            val diagnose = diagnostic_getters ? diagnostic_getters[sub_function]() : etl::vector<uint8_t>();
+            
+            var buffer = etl::vector_reserve<uint8_t>(2 + diagnose.len() + 2);
+            buffer.append(data[0]);
+            buffer.append(data[1]);
+            buffer.append(diagnose);
 
-            uint8_t buffer[2 + diagnose.len()];
-            buffer[0] = decoded[0];
-            buffer[1] = decoded[1];
-            ::memcpy(buffer + 2, diagnose.data(), diagnose.len());
-
-            response(buffer, 2 + diagnose.len());
-            break;
+            return buffer;
         }
         case FunctionCode::WRITE_MULTIPLE_COILS: {
-            const uint16_t start_register = decoded[2] << 8 | decoded[3];
-            const uint16_t length = decoded[4] << 8 | decoded[5];
+            const uint16_t start_register = data[2] << 8 | data[3];
+            const uint16_t length = data[4] << 8 | data[5];
 
-            const size_t byte_count = decoded[6];
-            if (byte_count != len - 7)
-                break;
+            const size_t byte_count = data[6];
+            if (byte_count != data.len() - 7)
+                return data;
             
             int bit_index = 0;
             var buf_index = 7;
@@ -228,35 +150,35 @@ fun modbus::api::Server::callbackTask(const uint8_t* data, size_t len) -> void {
                 if (not coil_setters.has(reg)) 
                     continue;
                 
-                coil_setters[reg]((1 << bit_index++) & decoded[buf_index]);
+                coil_setters[reg]((1 << bit_index++) & data[buf_index]);
                 if (bit_index == 8) {
                     bit_index = 0;
                     ++buf_index;
                 }
             }
 
-            response(decoded, 6);
-            break;
+            return data;
         }
         case FunctionCode::WRITE_MULTIPLE_REGISTERS: {
-            const uint16_t start_register = decoded[2] << 8 | decoded[3];
-            const uint16_t length = decoded[4] << 8 | decoded[5];
+            const uint16_t start_register = data[2] << 8 | data[3];
+            const uint16_t length = data[4] << 8 | data[5];
 
-            const size_t byte_count = decoded[6];
-            if (byte_count != len - 7)
-                break;
+            const size_t byte_count = data[6];
+            if (byte_count != data.len() - 7)
+                return data;
             
             var buf_index = 7;
             for (val reg in etl::range<uint16_t>(start_register, start_register + length)) {
                 if (not holding_register_setters.has(reg)) 
                     continue;
                 
-                holding_register_setters[reg](decoded[buf_index] << 8 | decoded[buf_index + 1]);
+                holding_register_setters[reg](data[buf_index] << 8 | data[buf_index + 1]);
                 buf_index += 2;
             }
 
-            response(decoded, 6);
-            break;
+            return data;
         }
     }
+
+    return data;
 }

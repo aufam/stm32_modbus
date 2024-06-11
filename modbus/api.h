@@ -3,8 +3,6 @@
 
 #include "etl/async.h"
 #include "etl/vector.h"
-#include "etl/queue.h"
-#include "etl/mutex.h"
 
 namespace Project::modbus {
     enum FunctionCode {
@@ -25,7 +23,8 @@ namespace Project::modbus::api {
     uint16_t crc(const uint8_t* data, size_t len);
     const uint8_t* decode(const uint8_t* data, size_t& len);
 
-    struct Message {const uint8_t* data; size_t len; };
+    etl::Vector<uint8_t> decode(etl::Vector<uint8_t> data);
+    etl::Vector<uint8_t> encode(etl::Vector<uint8_t> data);
 }
 
 #endif

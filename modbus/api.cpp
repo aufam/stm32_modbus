@@ -57,3 +57,26 @@ fun modbus::api::decode(const uint8_t* data, size_t& len) -> const uint8_t* {
     len = len - 2;
     return data;
 }
+
+fun modbus::api::encode(etl::Vector<uint8_t> data) -> etl::Vector<uint8_t> {
+    val checksum = modbus::api::crc(data.data(), data.len());
+    val capacity = data.len() + 2;
+    if (data.size() < capacity)
+        data.reserve(capacity);
+    
+    data.append((checksum >> 0) & 0xFF);
+    data.append((checksum >> 8) & 0xFF);
+    return data;
+}
+
+fun modbus::api::decode(etl::Vector<uint8_t> data) -> etl::Vector<uint8_t> {
+    if (data.len() < 4)
+        return {};
+
+    val checksum = modbus::api::crc(data.begin(), data.len() - 2);
+    if (checksum != (data[-2] | data[-1] << 8))
+        return {};
+    
+    data.resize(data.len() - 2);
+    return data;
+}

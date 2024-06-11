@@ -13,7 +13,7 @@ namespace Project::modbus::rtu {
         struct ArgsUART { periph::UART& uart; int server_address; };
 
         explicit Client(ArgsUART args) 
-            : api::Client(args.server_address, etl::bind<&Client::_send>(this))
+            : api::Client(args.server_address)
             , uart(&args.uart)
         {}
         #endif
@@ -39,7 +39,10 @@ namespace Project::modbus::rtu {
         #endif
 
     protected:
-        void _send(const uint8_t* data, size_t len);
+        etl::Future<etl::Vector<uint8_t>> create_request(etl::Vector<uint8_t> data) override;
+        void rxCallback(const uint8_t* data, size_t len);
+        
+        etl::Promise<etl::Iter<const uint8_t*>> received_data;
     };
 }
 
