@@ -22,7 +22,7 @@ namespace Project::modbus::rtu {
         struct ArgsUSB { periph::USBD& usb; int server_address; };
         
         explicit Client(ArgsUSB args) 
-            : api::Client(args.server_address, etl::bind<&Client::_send>(this))
+            : api::Client(args.server_address)
             , usb(&args.usb)
         {}
         #endif
