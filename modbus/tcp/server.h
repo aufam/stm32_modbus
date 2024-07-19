@@ -10,7 +10,7 @@ namespace Project::modbus::tcp {
         Server() : api::Server(0xFF), wizchip::tcp::Server() {}
 
     protected:
-        etl::Vector<uint8_t> response(etl::Vector<uint8_t> data) override;
+        wizchip::Stream response(int socket_number, etl::Vector<uint8_t> data) override;
     };
 }
 
